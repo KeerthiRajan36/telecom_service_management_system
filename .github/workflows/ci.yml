@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: telecom
+          POSTGRES_PASSWORD: telecom_pw
+          POSTGRES_DB: telecom_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U telecom" --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgresql+psycopg2://telecom:telecom_pw@localhost:5432/telecom_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements-dev.txt
+      - name: Migrations apply cleanly and match the models
+        env:
+          DATABASE_URL: postgresql+psycopg2://telecom:telecom_pw@localhost:5432/telecom_test
+        run: |
+          alembic upgrade head
+          alembic check
+          alembic downgrade base
+      - name: Tests (PostgreSQL)
+        run: pytest --cov=app --cov-fail-under=90
+
+  docker:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t telecom-backend .
